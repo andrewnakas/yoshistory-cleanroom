@@ -100,7 +100,8 @@ def _matches(data):
 
 
 def encode(data):
-    """Returns the full ROM file: CMPR header + SMSR00 stream, padded to 16 bytes."""
+    """Returns the full ROM file: CMPR header + SMSR00 stream, padded to 4 bytes (retail files are packed
+    4-aligned; the header's size field is what the DMA manager reads after the 16-byte CMPR header)."""
     data = bytes(data)
     toks = _matches(data)
     ctl = bytearray()
@@ -118,7 +119,7 @@ def encode(data):
             else:
                 ctl += struct.pack(">H", ((t[2] - 3) << 12) | (t[1] - 1))
     body = SMSR + struct.pack(">II", len(data), len(ctl)) + bytes(ctl) + bytes(raw)
-    body += b"\0" * (-len(body) % 16)
+    body += bytes(-len(body) % 4)
     return CMPR + struct.pack(">III", len(body), len(data), 0) + body
 
 

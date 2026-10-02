@@ -19,6 +19,62 @@ def is_palette(rom, ent):
     return (not cm) and sz >= 16 and sz % 2 == 0 and sz <= 0x400
 
 
+YOSHI_PALS = [0x96a390 + 0x200 * k for k in range(8)]
+FRAME_TABLE = 0xB0F7C0          # 0x80-byte records: DL pointer, part count, (id << 24 | size, part pointer) ...
+PARTS_START, PARTS_END = 0x96B390, 0x9E6BC0
+
+
+# title overlay (ROM 0xD14550, data at +0x460): three 328 x 384 CI8 pages sharing one palette
+TITLE_PIX, TITLE_PAL = 0xD14550 + 0x460 + 0x10, 0xD14550 + 0x460 + 0x5C418
+
+
+def yoshi_frames(rom):
+    o = FRAME_TABLE
+    while True:
+        dl = struct.unpack_from(">I", rom, o)[0]
+        if not 0x03400000 <= dl < 0x03700000:
+            return
+        n = rom[o + 4]
+        yield dl - 0x03000000 + A.SEG3, [struct.unpack_from(">II", rom, o + 8 + 8 * k) for k in range(n)]
+        o += 0x80
+
+
+def dl_tiles(rom, a):
+    """(w, h) of every texture a frame's display list loads, in order (palette loads skipped)."""
+    w = np.frombuffer(rom[a:a + 0x440], dtype=">u4").reshape(-1, 2)
+    out, cur = [], None
+    for x, y in w.tolist():
+        op = x >> 24
+        if op == 0xFD:
+            cur = (x >> 16) & 0xFF
+        elif op == 0xF2 and cur is not None and cur != 0x10:
+            out.append((((y >> 12) & 0xFFF) // 4 + 1, (y & 0xFFF) // 4 + 1))
+            cur = None
+        elif op == 0xB8:
+            break
+    return out
+
+
+def yoshi_parts(rom):
+    """{rom offset: (size, w, h, guessed)} covering PARTS_START..PARTS_END completely."""
+    parts = {}
+    for dl, ps in yoshi_frames(rom):
+        for (hdr, ptr), (w, h) in zip(ps, dl_tiles(rom, dl)):
+            if w * h == hdr & 0xFFFF:
+                parts.setdefault(ptr - 0x03000000 + A.SEG3, (hdr & 0xFFFF, w, h, False))
+    pos = PARTS_START
+    for o in sorted(parts) + [PARTS_END]:
+        if o > pos:                                   # parts no frame uses: one image per gap, width guessed
+            data = rom[pos:o]
+            if any(data):
+                w, _ = A.guess_width(data, [w for w in (32, 24, 16, 48) if len(data) % w == 0])
+                w = w or 16
+                parts[pos] = (len(data) // w * w, w, min(32, len(data) // w), True)
+        if o < PARTS_END:
+            pos = o + parts[o][0]
+    return parts
+
+
 def classify(rom):
     trip = A.triples(rom)
     out = {}
@@ -65,6 +121,28 @@ def classify(rom):
         if o not in out:
             sz = struct.unpack_from(">I", rom, o + 8)[0]
             out[o] = dict(kind="unref", size=sz, cm=True, pals=[], runs=[], w=0, fh=0, bpp=8)
+    # Yoshi: body-part textures (raw CI8) drawn with the palette of the current Yoshi colour
+    for p in YOSHI_PALS:
+        out.setdefault(p, dict(kind="palette", size=0x200, cm=False, pals=[], runs=[], w=0, fh=0, bpp=8))["kind"] = "palette"
+    for t in out.values():
+        if t["kind"] == "image" and any(p in YOSHI_PALS for p in t["pals"]):
+            t["pals"] = [p for p in t["pals"] if p not in YOSHI_PALS] + YOSHI_PALS
+    for o, (sz, w, h, guess) in yoshi_parts(rom).items():
+        out[o] = dict(kind="image", size=sz, cm=False, pals=list(YOSHI_PALS), runs=[], w=w, fh=h, bpp=8)
+        if guess:
+            out[o]["guess"] = True
+    # textures inside code overlays (static display lists) and the title pages
+    from . import texscan
+    tex, tluts, _ = texscan.scan(rom)
+    for p, n in tluts.items():
+        out[p] = dict(kind="palette", size=2 * n, cm=False, pals=[], runs=[], w=0, fh=0, bpp=8)
+    for o, e in tex.items():
+        out[o] = dict(kind="image", size=e["size"], cm=False, pals=[e["tlut"]] if e["fmt"] == 2 else [], runs=[],
+                      w=e["w"], fh=e["h"], bpp=4 << e["siz"])
+        if e["fmt"] == 4:
+            out[o]["ia"] = True
+    out[TITLE_PAL] = dict(kind="palette", size=0x200, cm=False, pals=[], runs=[], w=0, fh=0, bpp=8)
+    out[TITLE_PIX] = dict(kind="image", size=328 * 384 * 3, cm=False, pals=[TITLE_PAL], runs=[], w=328, fh=384, bpp=8)
     # width for images the dims did not settle
     for o, t in out.items():
         if t["kind"] == "image" and not t["w"]:

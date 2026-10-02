@@ -104,9 +104,13 @@ def main(argv):
         else:
             # intensity image: grid of mean level + 2-bit level outline
             v = idx.astype(np.float32) * (17 if bpp == 4 else 1)
+            lv = (v.astype(np.uint8) >> 6).ravel()
+            if t.get("ia"):                                  # IA8: grid of intensity, 2-bit alpha outline
+                e["ia"] = True
+                lv = ((idx & 15) >> 2).astype(np.uint8).ravel()
+                v = (idx >> 4).astype(np.float32) * 17
             rgba = np.stack([v, v, v, np.full_like(v, 255)], -1)
             e["grids"] = [put(frame_grids(rgba, fh))]
-            lv = (v.astype(np.uint8) >> 6).ravel()
             lv = np.concatenate([lv, np.zeros(-len(lv) % 4, np.uint8)])
             e["level2"] = put((lv[0::4] << 6) | (lv[1::4] << 4) | (lv[2::4] << 2) | lv[3::4])
         nfr += rows // fh

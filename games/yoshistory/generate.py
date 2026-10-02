@@ -17,6 +17,7 @@ from . import archive as A
 from . import smsr
 from .extract_spec import SPEC, cells, grid_n
 
+FREE_START, FREE_END = 0xEBDA70, (0xEBDA70 if os.environ.get("YS_NOMOVE") else 0x1000000)          # 0xFF padding in the retail layout
 HOOKS = []          # later passes (drawn text, faces, ...) register (off -> rgba override) here
 
 
@@ -59,10 +60,16 @@ def render_rgb(e, grids, smooth=True):
     n = grid_n(w, fh)
     g = grids.reshape(-1, n, n, 4).astype(np.float32)
     out = np.zeros((rows, w, 3), np.float32)
+    if smooth < 0:                                   # coarser tiers for images that must fit a tight slot
+        g[..., :3] = np.round(g[..., :3] / 32.0) * 32.0
     for f in range(rows // fh):
         cov = g[f, ..., 3:4] / 255.0
         if cov.max() <= 0:
             continue
+        if smooth < -1:
+            out[f * fh:(f + 1) * fh] = np.round((g[f, ..., :3] * cov).sum((0, 1)) / cov.sum() / 32.0) * 32.0
+            continue
+        smooth = smooth > 0
         num = up(g[f, ..., :3] * cov, w, fh, smooth)
         den = up(cov, w, fh, smooth)
         mean = (g[f, ..., :3] * cov).sum((0, 1)) / cov.sum()
@@ -80,12 +87,17 @@ def render_level(e, blob, smooth=True):
     n = grid_n(w, fh)
     g = get(blob, e["grids"][0]).reshape(-1, n, n, 4).astype(np.float32)[..., 0]
     out = np.zeros((rows, w), np.float32)
+    if e.get("ia"):
+        inten = np.concatenate([up(g[f], w, fh, True) for f in range(rows // fh)])
+        return ((np.clip(np.round(inten / 17), 0, 15).astype(np.uint8) << 4) | (lv.astype(np.uint8) * 5))
     for f in range(rows // fh):
-        base = up(g[f], w, fh, smooth)
+        base = up(g[f], w, fh, smooth > 0)
         band = lv[f * fh:(f + 1) * fh]
+        if smooth < 0:
+            base = band * 64 + 32
         # stay inside the kept 2-bit band, shaded by the coarse grid
         out[f * fh:(f + 1) * fh] = np.clip(base, band * 64, band * 64 + 63)
-    out = np.round(out / 8) * 8 if not smooth else out
+    out = np.round(out / 8) * 8 if smooth <= 0 else out
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
@@ -225,18 +237,25 @@ def build(retail, log=print):
     files = {}
     stats = dict(images=0, palettes=0, coarse=0, shrunk=0)
     fail = []
+    moved = {}                                         # image off -> new ROM offset (free space after the archive)
+    free = FREE_START
     for imgs in components(index["images"]):
         ok = False
-        for smooth, shrink in ((True, 1.0), (False, 1.0), (False, 0.5), (False, 0.25), (False, 0.1)):
+        for smooth, shrink in ((1, 1.0), (0, 1.0), (0, 0.5), (-1, 0.25), (-2, 0.1), (-2, 0.02)):
             oi, op = build_component(imgs, blob, pal_sizes, overrides, smooth, shrink)
             enc = {e["off"]: pack(e, oi[e["off"]]) for e in imgs}
-            if all(len(enc[e["off"]]) <= e["slot"] for e in imgs):
+            big = [e for e in imgs if len(enc[e["off"]]) > e["slot"]]
+            # a file that outgrows its slot moves to the unused end of the ROM (its descriptors are re-pointed)
+            if all(e["cm"] and users.get(e["off"]) for e in big) and                     free + sum(len(enc[e["off"]]) for e in big) <= FREE_END:
+                for e in big:
+                    moved[e["off"]] = free
+                    free += len(enc[e["off"]])
                 ok = True
                 break
         if not ok:
-            fail += [hex(e["off"]) for e in imgs if len(enc[e["off"]]) > e["slot"]]
+            fail += [hex(e["off"]) for e in big]
             continue
-        stats["coarse"] += (not smooth) * len(imgs)
+        stats["coarse"] += (smooth <= 0) * len(imgs)
         stats["shrunk"] += (shrink < 1) * len(imgs)
         files.update(enc)
         for p, b in op.items():
@@ -246,7 +265,7 @@ def build(retail, log=print):
     for e in index["images"]:
         if e["pals"]:
             continue
-        for smooth in (True, False):
+        for smooth in (1, 0, -1):
             px = render_level(e, blob, smooth)
             if e["bpp"] == 4:
                 v = px.reshape(-1) >> 4
@@ -262,15 +281,22 @@ def build(retail, log=print):
     by_off = {e["off"]: e for e in index["images"]}
     for off, enc in files.items():
         e = by_off[off]
+        dst = moved.get(off, off)
         if e["cm"]:
-            old = 16 + struct.unpack_from(">I", retail, off + 4)[0]
-            rom[off:off + max(old, len(enc))] = b"\0" * max(old, len(enc))
+            rom[off:off + e["slot"]] = bytes(e["slot"])          # the slot ends where the next file starts
             comp = struct.unpack_from(">I", enc, 4)[0]
             for u in users.get(off, []):
-                struct.pack_into(">I", rom, u + 4, comp)
-        rom[off:off + len(enc)] = enc
+                struct.pack_into(">II", rom, u + 4, comp, dst - A.SEG3 + 0x03000000)
+        assert dst != off or len(enc) <= e["slot"]
+        rom[dst:dst + len(enc)] = enc
+    if os.environ.get("YS_VERBOSE"):
+        for off in moved:
+            e = by_off[off]
+            log(f"  moved {off:x} w={e['w']} rows={e['rows']} fh={e['fh']} slot={e['slot']:x} new={len(files[off]):x} users={[hex(u) for u in users[off]]}")
+    stats["moved"] = len(moved)
+    stats["moved_kb"] = (free - FREE_START) // 1024
     log(f"generate: {stats['images']} images, {stats['palettes']} palettes written "
-        f"({stats['coarse']} blocky, {stats['shrunk']} with a reduced palette); not fitting: {len(fail)} {fail[:8]}")
+        f"({stats['moved']} moved = {stats['moved_kb']} KB, {stats['coarse']} blocky, {stats['shrunk']} with a reduced palette); not fitting: {len(fail)} {fail[:8]}")
     return bytes(rom), fail
 
 
