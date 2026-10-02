@@ -218,6 +218,24 @@ def build_component(imgs, blob, pal_sizes, overrides, smooth=True, shrink=1.0):
     return out_img, out_pal
 
 
+def crc6106(rom):
+    """Header checksum pair as the CIC-6106 boot code computes it over 0x1000..0x101000."""
+    w = np.frombuffer(bytes(rom[0x1000:0x101000]), dtype=">u4").tolist()
+    M = 0xFFFFFFFF
+    t1 = t2 = t3 = t4 = t5 = t6 = 0x1FEA617A
+    for d in w:
+        if (t6 + d) & M < t6:
+            t4 = (t4 + 1) & M
+        t6 = (t6 + d) & M
+        t3 ^= d
+        k = d & 31
+        r = ((d << k) | (d >> (32 - k))) & M
+        t5 = (t5 + r) & M
+        t2 ^= r if t2 > d else t6 ^ d
+        t1 = (t1 + (t5 ^ d)) & M
+    return ((t6 * t4 + t3) & M, (t5 * t2 + t1) & M)
+
+
 def pack(e, data):
     data = data + b"\0" * (e["size"] - len(data))
     assert len(data) == e["size"], (hex(e["off"]), len(data), e["size"])
@@ -297,6 +315,12 @@ def build(retail, log=print):
     stats["moved_kb"] = (free - FREE_START) // 1024
     log(f"generate: {stats['images']} images, {stats['palettes']} palettes written "
         f"({stats['moved']} moved = {stats['moved_kb']} KB, {stats['coarse']} blocky, {stats['shrunk']} with a reduced palette); not fitting: {len(fail)} {fail[:8]}")
+    for q, src, size in index.get("aliases", []):
+        rom[q:q + size] = rom[src:src + size]
+    if not os.environ.get("YS_NOAUDIO"):
+        from . import audio
+        audio.apply(rom, log)
+    struct.pack_into(">II", rom, 0x10, *crc6106(rom))      # the boot code refuses a ROM whose first MB changed
     return bytes(rom), fail
 
 

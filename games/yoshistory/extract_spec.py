@@ -21,6 +21,10 @@ SPEC = os.path.join(HERE, "spec")
 OVERRIDES = os.path.join(HERE, "image_overrides.json")
 
 
+# archive space no descriptor covers that is not picture data (looked at once on a dev sheet)
+RAW_KEPT = [[0x6BC41A, 0x181F6, "16-bit record tables (animation / geometry)"]]
+
+
 def cells(n_px, n):
     """Cell boundaries (like cleanroom.decomp.spec.grid)."""
     return [(g * n_px // n, max(g * n_px // n + 1, (g + 1) * n_px // n)) for g in range(n)]
@@ -57,6 +61,10 @@ def main(argv):
             if k.startswith("_"):
                 continue
             t = cl[int(k, 16)]
+            for q in v.pop("add_pals", []):                  # a palette stored next to the image, not in a descriptor
+                q = int(q, 16)
+                cl[q] = dict(kind="palette", size=0x200, cm=False, pals=[], runs=[], w=0, fh=0, bpp=8)
+                t["pals"] = [q] + [x for x in t["pals"] if x != q]
             t.update(v)
             if t["kind"] == "image" and not t["w"]:
                 data = A.read(rom, (int(k, 16), t["size"], t["cm"]))
@@ -115,11 +123,33 @@ def main(argv):
             e["level2"] = put((lv[0::4] << 6) | (lv[1::4] << 4) | (lv[2::4] << 2) | lv[3::4])
         nfr += rows // fh
         index["images"].append(e)
+    # copies of a palette that no descriptor points at (they follow small tables): regenerated as copies
+    cov = np.zeros(len(rom), np.uint8)
+    for e in index["images"]:
+        cov[e["off"]:e["off"] + (e["slot"] if e["cm"] else e["size"])] = 1
+    for p in index["palettes"]:
+        cov[p["off"]:p["off"] + p["size"]] = 1
+    for k in index["kept"]:
+        cov[k["off"]:k["off"] + (int.from_bytes(rom[k["off"] + 4:k["off"] + 8], "big") + 4 if k["cm"] else k["size"])] = 1
+    index["aliases"] = []
+    seen = set()
+    for p in index["palettes"]:
+        b = rom[p["off"]:p["off"] + p["size"]]
+        if p["size"] < 0x200 or b in seen or len(set(b)) <= 2:
+            continue
+        seen.add(b)
+        q = rom.find(b, A.DESC_END)
+        while 0 <= q < A.DATA_END:
+            if q != p["off"] and not cov[q:q + p["size"]].any():
+                index["aliases"].append([q, p["off"], p["size"]])
+                cov[q:q + p["size"]] = 1
+            q = rom.find(b, q + 2)
+    index["kept_raw"] = RAW_KEPT
     os.makedirs(SPEC, exist_ok=True)
     json.dump(index, open(os.path.join(SPEC, "archive.json"), "w"), separators=(",", ":"))
     open(os.path.join(SPEC, "archive.bin"), "wb").write(zlib.compress(bytes(blob), 9))
     print(f"spec: {len(index['images'])} images ({nfr} frames/tiles), {len(index['palettes'])} palettes, "
-          f"{len(index['kept'])} kept tables; blob {len(blob) // 1024} KB")
+          f"{len(index['kept'])} kept tables, {len(index['aliases'])} palette copies; blob {len(blob) // 1024} KB")
 
 
 if __name__ == "__main__":

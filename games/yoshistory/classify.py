@@ -16,7 +16,8 @@ from . import smsr
 
 def is_palette(rom, ent):
     ro, sz, cm = ent
-    return (not cm) and sz >= 16 and sz % 2 == 0 and sz <= 0x400
+    # one palette (<= 256 colours) or a block of 256-colour variants
+    return (not cm) and sz >= 16 and sz % 2 == 0 and (sz <= 0x200 or (sz % 0x200 == 0 and sz <= 0x2000))
 
 
 YOSHI_PALS = [0x96a390 + 0x200 * k for k in range(8)]
@@ -112,10 +113,14 @@ def classify(rom):
                 if t["kind"] != "image" or (w and not t["w"]):
                     t.update(kind="image", w=w or t["w"], fh=fh or t["fh"], bpp=bpp)
                 if pal is not None:
-                    p = rec(pal)
-                    p["kind"] = "palette"
-                    if pal[0] not in t["pals"]:
-                        t["pals"].append(pal[0])
+                    for q in range(pal[0], pal[0] + pal[1], 0x200):          # every 256-colour variant
+                        p = rec((q, min(0x200, pal[1]), False))
+                        p["kind"] = "palette"
+                        p["size"] = min(0x200, pal[1])
+                        if pal[0] not in p["runs"]:
+                            p["runs"].append(r[0])
+                        if q not in t["pals"]:
+                            t["pals"].append(q)
     # unreferenced CMPR files
     for o in smsr.find_all(rom):
         if o not in out:

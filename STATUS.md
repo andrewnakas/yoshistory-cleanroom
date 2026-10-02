@@ -1,30 +1,34 @@
 # Yoshi's Story clean room: status
 
-## BLOCKED: ROM
-- Needed: **Yoshi's Story (USA) (En,Ja)**, .z64 (big-endian), 16 MB.
-  sha1 `b13072fef6c6df48c07d8822c01e5bc59036f6da`, md5 `586a092e22604840973b82dfaceac77a` (the decomp's `us` target).
-- Looked for `*yoshi*` in `C:/Users/andre/Downloads` and `D:/` (root): not there (last check 2026-10-01, loop 1).
-  Re-checked every 20 minutes. Drop the zip in either place; nothing else is needed.
+**Not published yet.** ROM is on disk (`D:/n64work/yoshistory/baserom.us.z64`, sha1 ok). Clean ROM boots and level 1
+plays in headless Edge with regenerated graphics. Audio is generated but hangs the game at boot (being bisected).
+
+## What works (2026-10-01, loop 2)
+- Route: clean ROM + EmulatorJS (mupen64plus_next). Dev site `D:/n64work/yoshistory/devsite` (port 8471; 8093 is
+  used by another session).
+- `games/yoshistory`: `smsr.py` (CMPR/SMSR00 codec), `classify.py` + `extract_spec.py` (dirty) -> `spec/archive.*`,
+  `generate.py` (clean ROM), `texscan.py` (overlay textures), `audio.py` (soundfonts / samples).
+- Regenerated: 1495 images + 707 palettes (archive sprites/tiles, Yoshi body parts, 375 overlay textures, the three
+  title pages). All smooth 4x4-grid renders; 25 files that outgrew their slot live in the free end of the ROM.
+- Audio spec: 62 fonts, 445 samples (355 s), sequences kept. Samples resynthesised (pitched ones as steady partials
+  that loop on whole periods), own codebooks and loop states.
 
 ## Decisions (log)
-- 2026-10-01 loop 1. Decomp cloned LF, depth 1: `D:/n64work/yoshistory/pristine` (decompals/yoshis-story, 5 MB).
-- **Web route = 3: clean ROM + WASM N64 emulator** (EmulatorJS 4.2.3 + mupen64plus_next, as Conker / DK64 / BK).
-  Why: no PC port and no recomp port exists; the decomp splits only the `main` code segment (IDO 7.1/5.3, mostly asm)
-  and keeps ROM 0xB58B0..0x1000000 as a single `unkbin` blob, so there is nothing to compile for the web.
-- **Clean ROM = the game's code (kept fact) + regenerated assets**, rebuilt by our own ROM tool like Conker/DK64
-  (`games/<g>/romtool.py` there). The decomp does not split any asset: every texture, sprite, background, font and
-  sample lives in `unkbin` and has to be found by our own scanners once the ROM is here.
-- `ports/ejs` copied from the Conker session and adapted: page (keys: X = A jump, C = B tongue, Z = Z, S = R, Enter),
-  `make_site.py` (refuses the retail sha1, writes `yoshistory.z64`), `patch_core.py` (core ROM-DB slot
-  "Yoshi's Story (U) (M2) [b1]" -> our MD5, so the clean ROM gets EEPROM 16 KB + rumble).
-  EmulatorJS runtime to reuse: `D:/n64work/conker/devsite/data` (+ `LICENSE`).
-- Disk: 36 GB free on D: at start (limit: stop heavy work under 10 GB).
+- Web route = 3 (clean ROM + WASM emulator): no PC port, decomp splits only `main`; assets found by our scanners.
+- Compressed files are packed 4-aligned and the header size field is ~12 bytes larger than the stored file: a slot
+  ends where the next file starts (zeroing "16 + comp" bytes clipped the next file = scrambled levels; fixed).
+- Oversized regenerated files move to the 0xFF padding after 0xEBDA70 and their descriptors are re-pointed.
+- Audio engine = EAD (SF64-style fonts). Tables: fonts 0xB4F60, sequences 0xB5460, sample banks 0xB5880;
+  Audiobank 0xB58B0, Audiotable 0xE1AD0, Audioseq 0x4F3930.
 
-## Next (as soon as the ROM is there)
-1. Unzip to `D:/n64work/yoshistory/baserom.us.z64`, check sha1; retail boot in headless Edge (dev only).
-2. Map `unkbin`: DMA/file tables referenced from `main`, compression, overlays (`loadfragment2`), audio bank/table/seq.
-3. Identity rebuild (sha1 match), then texture/sprite/background scan -> spec (format, size, 4x4 grid, 2-bit alpha).
-4. Generate, taint (0 failing), boot, publish; then readable text, faces/sprites, pictures; placeholder voices + practice pack.
+## Next
+1. Audio hang (bisect: gaps / data / books / loops with `tools/dev/audio_test.py`).
+2. Taint scan for the ROM (every spec item differs from retail, list kept regions), then publish.
+3. Readability: title logo + (c) line, menu words (Story Mode, Trial Mode, Options, Practice), big red font
+   (tile set 0x561540), "PUSH START", fruit-select title. Faces: Yoshi parts, Shy Guys, HUD smile meter.
+4. Palette-less CI sprites (57 "nopal" images rendered as grey levels) need their palettes found.
+5. Fault font in `main`, any textures in main data. White dots at tile corners are an emulator artefact (also retail).
+6. Placeholder voices (Piper) for Yoshi's vocal samples + practice pack in `D:/n64work/yoshistory/practice/`.
 
 ## For the morning
-- Put the ROM zip in Downloads (see top) if this still says BLOCKED.
+- Nothing to record yet; practice pack not built.
