@@ -21,6 +21,10 @@ MENU = [
 ]
 
 
+# headings: 256 x 48 frames stored upside down (frame 0 English, frame 1 Japanese); (image, frame, text)
+HEADINGS = [(0x563980, 0, "GAME OVER"), (0x5672F0, 0, "Select Yoshi"), (0x639EB0, 0, "Reveal Lucky Fruit")]
+
+
 def fit_line(text, w, h, bold=None):
     """Mask (h, w) of one centred line that fills the box."""
     th = max(1.0, h * (bold or (0.13 if h >= 28 else 0.09)))
@@ -137,6 +141,17 @@ def hook(index, blob):
         for e in es:
             out[(e["off"], e["pals"][0])] = art[:, x:x + e["w"]]
             x += e["w"]
+    for off, frame, text in HEADINGS:
+        e = by[off]
+        w, fh = e["w"], e["fh"]
+        key = (off, e["pals"][0])
+        if key not in out:
+            rgb = G.render_rgb(e, G.get(blob, e["grids"][0]), True)
+            a = np.unpackbits(G.get(blob, e["alpha"]))[:e["rows"] * w].reshape(e["rows"], w)
+            out[key] = np.concatenate([np.clip(rgb, 0, 255), a[..., None] * 255.0], -1).astype(np.uint8)
+        y0 = frame * fh
+        colour = out[key][y0:y0 + fh, :, :3][::-1]
+        out[key][y0:y0 + fh] = word_art([(text, 0, fh)], colour, outline=2, pad=3, bold=0.15)[::-1]
     from .classify import TITLE_PIX
     e = by[TITLE_PIX]
     out[(e["off"], e["pals"][0])] = title_pages(e, blob)
