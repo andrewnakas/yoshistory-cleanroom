@@ -36,12 +36,15 @@ Boots, level 1 plays, regenerated graphics and audio, taint 0 failing. Checked i
 - Dev tools: `tools/dev/find_image.py x0 y0 x1 y1` bisects which spec image draws a screen region (slow, ~20 min).
 
 ## Next
-1. Faces: Yoshi body parts, Shy Guys, enemies and the HUD mood icon are grid blobs (right colours and silhouettes,
+1. Faces: the Yoshi "parts" are whole 32x32 pose frames, so one 4x4 grid per pose: eyes cannot survive.
+   Yoshi body parts, Shy Guys, enemies and the HUD mood icon are grid blobs (right colours and silhouettes,
    no eyes). Part ids in the frame table do not identify heads; needs briefs per sprite or a head finder.
 2. Japanese menu tiles / heading frames are left as grid blurs (English is typeset).
 3. 27 palette-less images are true intensity images (2-bit level kept); fine unless one turns out to be CI.
-4. White dots at tile corners are an emulator artefact (retail shows them too): try core options.
-5. Only level 1 and the menus were looked at. Walk further levels, Trial Mode, Options, Practice.
+4. White dots at fixed screen positions (retail shows them too in this emulator). Tried without effect:
+   EnableN64DepthCompare, EnableFBEmulation off, EnableNativeResTexrects, EnableLegacyBlending, copy-to-RDRAM off.
+5. Seen working: title, menu, Options, Practice level, story page, fruit / Yoshi select, course 1, pause, game
+   over. Not seen: courses 2-4 (my scripted cursor did not move the course pointer), later pages, Trial Mode.
 6. Listen to the audio (decoding our samples from the clean ROM gives stable output at the spec loudness, but
    nobody has heard it); pitch-detector octave errors are possible.
 
