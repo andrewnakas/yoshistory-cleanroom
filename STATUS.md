@@ -9,7 +9,8 @@ Boots, level 1 plays, regenerated graphics and audio, taint 0 failing. Checked i
 - Images: 1495 images + 776 palettes regenerated (archive sprites/tiles, Yoshi body parts, 375 overlay textures,
   title pages); smooth 4x4-grid renders + kept 1-bit outline; 27 oversized files moved to the free end of the ROM.
 - Readable: title page (logo, (C) line, simple drawn Yoshis), menu words (Story Mode, Trial Mode, Options,
-  Practice, Start From P.n) re-typeset with our stroke font in `games/yoshistory/drawn.py`. Message font is crisp.
+  Practice, Start From P.n), headings (Game Over, Select Yoshi, Reveal Lucky Fruit; stored upside down, frame 0
+  English / frame 1 Japanese) re-typeset with our stroke font in `games/yoshistory/drawn.py`. Message font is crisp.
 - Audio: 62 fonts, 445 samples resynthesised (pitched ones as steady partials looping on whole periods), own
   codebooks + loop states, sequences kept. Header checksum (CIC-6106) recomputed.
 - Voices: 98 voice clips found (speech detector); 97 Piper placeholders (amy, +7 semitones, made-up Yoshi words)
@@ -29,15 +30,20 @@ Boots, level 1 plays, regenerated graphics and audio, taint 0 failing. Checked i
 - Palettes: a descriptor's palette entry can be a block of N x 256-colour variants; some palettes are stored next to
   the image without a descriptor (aliases / `add_pals` override).
 
+- 4-bit images use blocks of 16-colour palette variants (HUD mood icon: 5 variants); runs with fewer palettes than
+  images give every image every palette of the run. Intensity images with a flat zero background keep it empty.
+- Crash-screen font (main, 0xA8C0C) replaced by our own 8x8 glyphs; it is in the taint scan.
+- Dev tools: `tools/dev/find_image.py x0 y0 x1 y1` bisects which spec image draws a screen region (slow, ~20 min).
+
 ## Next
-1. Text in pictures still mushy: big orange headings (fruit select, Yoshi select), tile font 0x561540, Japanese menu
-   tiles (left as grid). HUD: smile meter, fruit frame. Story-page caption box.
-2. Faces: Yoshi body parts, Shy Guys, enemies are 4x4-grid blobs (recognisable silhouettes, no eyes).
-3. 38 palette-less images rendered as grey levels: check which are CI with a palette elsewhere.
-4. Fault (crash screen) font in `main` is still the decomp-extracted one; white dots at tile corners are an
-   emulator artefact (retail shows them too): try core options.
-5. Listen to the audio (no dropouts verified only by the game running); music instruments are in tune by
-   construction but octave errors of the pitch detector are possible.
+1. Faces: Yoshi body parts, Shy Guys, enemies and the HUD mood icon are grid blobs (right colours and silhouettes,
+   no eyes). Part ids in the frame table do not identify heads; needs briefs per sprite or a head finder.
+2. Japanese menu tiles / heading frames are left as grid blurs (English is typeset).
+3. 27 palette-less images are true intensity images (2-bit level kept); fine unless one turns out to be CI.
+4. White dots at tile corners are an emulator artefact (retail shows them too): try core options.
+5. Only level 1 and the menus were looked at. Walk further levels, Trial Mode, Options, Practice.
+6. Listen to the audio (decoding our samples from the clean ROM gives stable output at the spec loudness, but
+   nobody has heard it); pitch-detector octave errors are possible.
 
 ## For the morning
 - **Play**: https://andrewnakas.github.io/yoshistory-cleanroom/ (X jump, C tongue, Z egg, S sniff, Enter start).

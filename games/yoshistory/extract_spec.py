@@ -119,6 +119,8 @@ def main(argv):
                 v = (idx >> 4).astype(np.float32) * 17
             rgba = np.stack([v, v, v, np.full_like(v, 255)], -1)
             e["grids"] = [put(frame_grids(rgba, fh))]
+            low = v[v < 64]
+            e["soft0"] = bool(len(low) and (low > 0).mean() > 0.3)     # lowest band: a soft fade, or flat zero
             lv = np.concatenate([lv, np.zeros(-len(lv) % 4, np.uint8)])
             e["level2"] = put((lv[0::4] << 6) | (lv[1::4] << 4) | (lv[2::4] << 2) | lv[3::4])
         nfr += rows // fh

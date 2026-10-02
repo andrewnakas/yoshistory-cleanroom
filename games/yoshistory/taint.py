@@ -57,6 +57,8 @@ def main(argv):
             fails.append(f"palette copy {q:x}")
     for o, s, _ in J.get("kept_raw", []):
         cov[o:o + s] = 3
+    if retail[0xA8C0C:0xA900C] == clean[0xA8C0C:0xA900C]:
+        fails.append("fault font")
     ap = os.path.join(SPEC, "audio.json")
     table = (0, 0)
     if os.path.exists(ap):

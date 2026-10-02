@@ -97,6 +97,8 @@ def render_level(e, blob, smooth=True):
             base = band * 64 + 32
         # stay inside the kept 2-bit band, shaded by the coarse grid
         out[f * fh:(f + 1) * fh] = np.clip(base, band * 64, band * 64 + 63)
+        if not e.get("soft0", True):
+            out[f * fh:(f + 1) * fh][band == 0] = 0                     # flat background stays empty
     out = np.round(out / 8) * 8 if smooth <= 0 else out
     return np.clip(out, 0, 255).astype(np.uint8)
 
@@ -236,6 +238,23 @@ def crc6106(rom):
     return ((t6 * t4 + t3) & M, (t5 * t2 + t1) & M)
 
 
+FAULT_FONT = 0xA8C0C            # crash-screen font: 256 words, 8x8 glyphs, 8 characters share 16 words
+
+
+def fault_font():
+    """Our own 8x8 glyphs (stroke font) in the layout Fault_PrintCharImpl reads."""
+    from cleanroom.gfx import strokefont as sf
+    words = [0] * 256
+    for c in range(0x20, 0x7F):
+        m = sf.render(chr(c).upper() if chr(c).upper() in sf.G or chr(c) not in sf.G else chr(c), 7, 8, 0.55) > 0.3
+        base = (c // 8) * 16 + ((c & 4) >> 2)
+        for i in range(8):
+            for j in range(7):
+                if m[i, j]:
+                    words[base + 2 * i] |= (0x10000000 << (c % 4)) >> (4 * j)
+    return struct.pack(">256I", *words)
+
+
 def pack(e, data):
     data = data + b"\0" * (e["size"] - len(data))
     assert len(data) == e["size"], (hex(e["off"]), len(data), e["size"])
@@ -321,6 +340,7 @@ def build(retail, log=print):
     if not os.environ.get("YS_NOAUDIO"):
         from . import audio
         audio.apply(rom, log)
+    rom[FAULT_FONT:FAULT_FONT + 0x400] = fault_font()
     struct.pack_into(">II", rom, 0x10, *crc6106(rom))      # the boot code refuses a ROM whose first MB changed
     return bytes(rom), fail
 

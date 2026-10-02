@@ -113,14 +113,32 @@ def classify(rom):
                 if t["kind"] != "image" or (w and not t["w"]):
                     t.update(kind="image", w=w or t["w"], fh=fh or t["fh"], bpp=bpp)
                 if pal is not None:
-                    for q in range(pal[0], pal[0] + pal[1], 0x200):          # every 256-colour variant
-                        p = rec((q, min(0x200, pal[1]), False))
+                    step = 0x20 if bpp == 4 and pal[1] % 0x20 == 0 else 0x200   # 4-bit images: 16-colour variants
+                    for q in range(pal[0], pal[0] + pal[1], step):           # every variant
+                        p = rec((q, min(step, pal[1]), False))
                         p["kind"] = "palette"
-                        p["size"] = min(0x200, pal[1])
+                        p["size"] = min(step, pal[1])
                         if pal[0] not in p["runs"]:
                             p["runs"].append(r[0])
                         if q not in t["pals"]:
                             t["pals"].append(q)
+    # runs with fewer palettes than images: which image uses which palette is not stated, so every image of the
+    # run is built to look right under every palette of the run
+    for r in A.runs(trip):
+        if r[0] < A.SEG3 or r[0] >= A.DESC_END:
+            continue
+        ents = [trip[u] for u in r]
+        st = "".join("C" if e[2] else "R" for e in ents)
+        n = len(re.match(r"C*", st).group(0))
+        pl = []
+        for e in ents[n:]:
+            if not is_palette(rom, e):
+                break
+            pl += list(range(e[0], e[0] + e[1], 0x200))
+        imgs = [out[e[0]] for e in ents[:n] if out[e[0]]["kind"] == "image"]
+        if n >= 2 and pl and any(not t["pals"] for t in imgs) and all(out.get(q, {}).get("kind") == "palette" for q in pl):
+            for t in imgs:
+                t["pals"] += [q for q in pl if q not in t["pals"]]
     # unreferenced CMPR files
     for o in smsr.find_all(rom):
         if o not in out:
