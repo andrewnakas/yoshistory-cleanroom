@@ -247,7 +247,8 @@ def build(retail, log=print):
     rom = bytearray(retail)
     pal_sizes = {p["off"]: p["size"] for p in index["palettes"]}
     overrides = {}
-    for h in HOOKS:
+    from . import drawn
+    for h in HOOKS + [drawn.hook]:
         overrides.update(h(index, blob))
     users = {}
     for u, (ro, sz, cm) in A.triples(retail).items():
